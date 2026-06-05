@@ -1,0 +1,248 @@
+
+<style>
+canvas { display: block; }
+.ctrl { display: flex; align-items: center; gap: 10px; margin: 6px 0; font-size: 13px; color: var(--color-text-secondary); }
+.ctrl input[type=range] { flex: 1; }
+.ctrl span { min-width: 40px; text-align: right; font-size: 13px; color: var(--color-text-primary); }
+</style>
+
+<canvas id="c" width="680" height="320"></canvas>
+
+<div style="padding: 0 16px 4px;">
+  <div class="ctrl">
+    <label>Position <i>(i)</i></label>
+    <input type="range" id="pos" min="0" max="100" value="20" step="1">
+    <span id="posV">20</span>
+  </div>
+  <div class="ctrl">
+    <label>Frequency <i>(w<sub>k</sub>)</i></label>
+    <input type="range" id="freq" min="0.01" max="1.5" value="0.3" step="0.01">
+    <span id="freqV">0.30</span>
+  </div>
+  <div class="ctrl">
+    <label style="min-width:80px">Animate</label>
+    <input type="checkbox" id="anim" style="width:16px;height:16px;cursor:pointer">
+    <label for="anim" style="cursor:pointer">Run (i increases over time)</label>
+  </div>
+</div>
+
+<script>
+const cv = document.getElementById('c');
+const ctx = cv.getContext('2d');
+const W = 680, H = 320;
+const CX = 160, CY = 160, R = 110;
+
+let pos = 20, freq = 0.3, running = false, raf = null, t0 = null;
+
+function isDark() {
+  return window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
+}
+
+function col(light, dark) { return isDark() ? dark : light; }
+
+function draw(p) {
+  const angle = freq * p;
+  const cosA = Math.cos(angle), sinA = Math.sin(angle);
+
+  ctx.clearRect(0, 0, W, H);
+
+  const bg = col('#ffffff', '#1a1a1a');
+  const fg = col('#1a1a1a', '#e0e0e0');
+  const muted = col('#888', '#666');
+  const gridC = col('#e8e8e8', '#333');
+  const circleC = col('#c0c0c8', '#444');
+  const cosColor = '#3478dd';
+  const sinColor = '#e8593c';
+  const vecColor = '#7c4fbf';
+
+  ctx.fillStyle = bg;
+  ctx.fillRect(0, 0, W, H);
+
+  // ── Unit circle ──
+  ctx.beginPath();
+  ctx.arc(CX, CY, R, 0, 2 * Math.PI);
+  ctx.strokeStyle = circleC;
+  ctx.lineWidth = 1.5;
+  ctx.stroke();
+
+  // Axes
+  ctx.strokeStyle = gridC;
+  ctx.lineWidth = 1;
+  ctx.beginPath(); ctx.moveTo(CX - R - 20, CY); ctx.lineTo(CX + R + 20, CY); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(CX, CY - R - 20); ctx.lineTo(CX, CY + R + 20); ctx.stroke();
+
+  // Axis labels
+  ctx.fillStyle = muted; ctx.font = '12px sans-serif'; ctx.textAlign = 'center';
+  ctx.fillText('+1', CX + R + 14, CY - 6);
+  ctx.fillText('−1', CX - R - 14, CY - 6);
+  ctx.fillText('+1', CX + 4, CY - R - 10);
+  ctx.fillText('−1', CX + 4, CY + R + 16);
+  ctx.fillText('cos', CX + R + 18, CY + 18);
+  ctx.textAlign = 'left';
+  ctx.save(); ctx.translate(CX - 24, CY - R - 4); ctx.fillText('sin', 0, 0); ctx.restore();
+
+  // ── Dashed projection lines ──
+  // cos projection (vertical dashed from point to x-axis)
+  ctx.setLineDash([4, 4]);
+  ctx.strokeStyle = cosColor;
+  ctx.lineWidth = 1.2;
+  ctx.globalAlpha = 0.5;
+  ctx.beginPath();
+  ctx.moveTo(CX + cosA * R, CY + sinA * R);
+  ctx.lineTo(CX + cosA * R, CY);
+  ctx.stroke();
+  // sin projection (horizontal dashed from point to y-axis)
+  ctx.strokeStyle = sinColor;
+  ctx.beginPath();
+  ctx.moveTo(CX + cosA * R, CY + sinA * R);
+  ctx.lineTo(CX, CY + sinA * R);
+  ctx.stroke();
+  ctx.setLineDash([]);
+  ctx.globalAlpha = 1;
+
+  // Projection dots on axes
+  ctx.fillStyle = cosColor;
+  ctx.beginPath(); ctx.arc(CX + cosA * R, CY, 5, 0, 2 * Math.PI); ctx.fill();
+  ctx.fillStyle = sinColor;
+  ctx.beginPath(); ctx.arc(CX, CY + sinA * R, 5, 0, 2 * Math.PI); ctx.fill();
+
+  // ── Rotating vector ──
+  ctx.strokeStyle = vecColor;
+  ctx.lineWidth = 2.5;
+  ctx.beginPath();
+  ctx.moveTo(CX, CY);
+  ctx.lineTo(CX + cosA * R, CY + sinA * R);
+  ctx.stroke();
+
+  // Arrowhead on vector
+  const headLen = 10;
+  const ax = CX + cosA * R, ay = CY + sinA * R;
+  const ang = Math.atan2(ay - CY, ax - CX);
+  ctx.fillStyle = vecColor;
+  ctx.beginPath();
+  ctx.moveTo(ax, ay);
+  ctx.lineTo(ax - headLen * Math.cos(ang - 0.4), ay - headLen * Math.sin(ang - 0.4));
+  ctx.lineTo(ax - headLen * Math.cos(ang + 0.4), ay - headLen * Math.sin(ang + 0.4));
+  ctx.closePath(); ctx.fill();
+
+  // Point on circle
+  ctx.fillStyle = vecColor;
+  ctx.beginPath(); ctx.arc(ax, ay, 6, 0, 2 * Math.PI); ctx.fill();
+
+  // Angle arc
+  ctx.strokeStyle = vecColor; ctx.lineWidth = 1; ctx.globalAlpha = 0.4;
+  ctx.beginPath(); ctx.arc(CX, CY, 30, 0, angle); ctx.stroke();
+  ctx.globalAlpha = 1;
+
+  // Angle label
+  const midA = angle / 2;
+  ctx.fillStyle = vecColor; ctx.font = '12px sans-serif'; ctx.textAlign = 'center';
+  ctx.fillText('w·i', CX + 42 * Math.cos(midA), CY + 42 * Math.sin(midA));
+
+  // ── Right panel: waveforms over positions 0–100 ──
+  const PX = 360, PY = 40, PW = 300, PH = 260;
+
+  ctx.fillStyle = col('#f5f5f5', '#222');
+  ctx.beginPath(); ctx.roundRect(PX, PY, PW, PH, 8); ctx.fill();
+
+  // Grid
+  ctx.strokeStyle = gridC; ctx.lineWidth = 0.5;
+  for (let i = 0; i <= 4; i++) {
+    const y = PY + 10 + (i / 4) * (PH - 20);
+    ctx.beginPath(); ctx.moveTo(PX + 10, y); ctx.lineTo(PX + PW - 10, y); ctx.stroke();
+  }
+
+  const iW = PW - 20;
+  const iH = (PH - 20) / 2 - 10;
+  const m1Y = PY + 10 + iH / 2 + 10;
+  const m2Y = PY + 10 + iH + 20 + iH / 2 + 10;
+
+  // Panel label
+  ctx.fillStyle = fg; ctx.font = '500 13px sans-serif'; ctx.textAlign = 'left';
+  ctx.fillText('cos(w·i) and sin(w·i) over positions i = 0 … 100', PX + 10, PY - 8);
+
+  // Draw cos curve
+  ctx.strokeStyle = cosColor; ctx.lineWidth = 1.8; ctx.beginPath();
+  for (let ii = 0; ii <= 100; ii++) {
+    const x = PX + 10 + (ii / 100) * iW;
+    const y = m1Y - Math.cos(freq * ii) * (iH / 2 - 4);
+    ii === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+  }
+  ctx.stroke();
+
+  // Draw sin curve
+  ctx.strokeStyle = sinColor; ctx.lineWidth = 1.8; ctx.beginPath();
+  for (let ii = 0; ii <= 100; ii++) {
+    const x = PX + 10 + (ii / 100) * iW;
+    const y = m2Y - Math.sin(freq * ii) * (iH / 2 - 4);
+    ii === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+  }
+  ctx.stroke();
+
+  // Divider
+  ctx.strokeStyle = gridC; ctx.lineWidth = 0.8;
+  ctx.beginPath(); ctx.moveTo(PX + 10, PY + 10 + iH + 15); ctx.lineTo(PX + PW - 10, PY + 10 + iH + 15); ctx.stroke();
+
+  // Curve labels
+  ctx.font = '12px sans-serif'; ctx.textAlign = 'left';
+  ctx.fillStyle = cosColor; ctx.fillText('cos(w·i)', PX + 12, PY + 20);
+  ctx.fillStyle = sinColor; ctx.fillText('sin(w·i)', PX + 12, PY + 10 + iH + 30);
+
+  // Current position marker
+  const px = PX + 10 + (p / 100) * iW;
+  ctx.strokeStyle = col('#333', '#ccc'); ctx.lineWidth = 1; ctx.setLineDash([3, 3]);
+  ctx.beginPath(); ctx.moveTo(px, PY + 10); ctx.lineTo(px, PY + PH - 10); ctx.stroke();
+  ctx.setLineDash([]);
+
+  // Dots at current position
+  ctx.fillStyle = cosColor;
+  ctx.beginPath(); ctx.arc(px, m1Y - Math.cos(freq * p) * (iH / 2 - 4), 5, 0, 2 * Math.PI); ctx.fill();
+  ctx.fillStyle = sinColor;
+  ctx.beginPath(); ctx.arc(px, m2Y - Math.sin(freq * p) * (iH / 2 - 4), 5, 0, 2 * Math.PI); ctx.fill();
+
+  // x-axis labels
+  ctx.fillStyle = muted; ctx.font = '11px sans-serif'; ctx.textAlign = 'center';
+  ctx.fillText('0', PX + 10, PY + PH - 2);
+  ctx.fillText('50', PX + 10 + iW / 2, PY + PH - 2);
+  ctx.fillText('100', PX + 10 + iW, PY + PH - 2);
+  ctx.fillText('position i →', PX + 10 + iW / 2, PY + PH + 12);
+
+  // ── Circle labels ──
+  ctx.fillStyle = fg; ctx.font = '500 13px sans-serif'; ctx.textAlign = 'center';
+  ctx.fillText('Unit circle', CX, H - 8);
+
+  // cos/sin value readouts
+  ctx.fillStyle = cosColor; ctx.font = '13px monospace'; ctx.textAlign = 'left';
+  ctx.fillText('cos = ' + cosA.toFixed(3), CX - R + 4, CY + R + 22);
+  ctx.fillStyle = sinColor;
+  ctx.fillText('sin = ' + sinA.toFixed(3), CX - R + 4, CY + R + 40);
+}
+
+function animate(ts) {
+  if (!t0) t0 = ts;
+  const elapsed = (ts - t0) / 1000;
+  const p = (elapsed * 8) % 100;
+  document.getElementById('pos').value = p;
+  document.getElementById('posV').textContent = Math.round(p);
+  draw(p);
+  if (running) raf = requestAnimationFrame(animate);
+}
+
+document.getElementById('pos').addEventListener('input', e => {
+  pos = +e.target.value;
+  document.getElementById('posV').textContent = pos;
+  if (!running) draw(pos);
+});
+document.getElementById('freq').addEventListener('input', e => {
+  freq = +e.target.value;
+  document.getElementById('freqV').textContent = freq.toFixed(2);
+  if (!running) draw(+document.getElementById('pos').value);
+});
+document.getElementById('anim').addEventListener('change', e => {
+  running = e.target.checked;
+  if (running) { t0 = null; raf = requestAnimationFrame(animate); }
+  else { cancelAnimationFrame(raf); }
+});
+
+draw(20);
+</script>
