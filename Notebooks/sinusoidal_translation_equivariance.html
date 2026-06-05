@@ -1,0 +1,103 @@
+
+<style>
+.ctrl { display:flex; align-items:center; gap:10px; margin:8px 0; font-size:13px; color:var(--color-text-secondary); }
+.ctrl input[type=range] { flex:1; }
+.ctrl span { min-width:28px; font-size:13px; color:var(--color-text-primary); }
+table { width:100%; border-collapse:collapse; font-size:13px; margin:12px 0; }
+th { font-size:12px; color:var(--color-text-secondary); font-weight:400; padding:6px 10px; border-bottom:0.5px solid var(--color-border-tertiary); text-align:left; }
+td { padding:6px 10px; border-bottom:0.5px solid var(--color-border-tertiary); font-variant-numeric:tabular-nums; }
+.mono { font-family:var(--font-mono); font-size:12px; }
+.hl { background:var(--color-background-info); color:var(--color-text-info); border-radius:4px; padding:1px 6px; }
+.box { padding:10px 14px; border:0.5px solid var(--color-border-tertiary); border-radius:8px; font-size:13px; color:var(--color-text-secondary); line-height:1.8; margin:12px 0; }
+.eq { color:var(--color-text-primary); font-weight:500; }
+</style>
+
+<div style="padding:10px 0 0">
+  <div class="ctrl">
+    <label>Offset Δ = j − i</label>
+    <input type="range" id="delta" min="1" max="10" step="1" value="3">
+    <span id="deltaV">3</span>
+  </div>
+  <div class="ctrl">
+    <label style="min-width:90px">d_model</label>
+    <input type="range" id="dmodel" min="4" max="64" step="4" value="16">
+    <span id="dmodelV">16</span>
+  </div>
+</div>
+
+<div id="result"></div>
+
+<script>
+function emb(pos, d) {
+  const v = new Array(d);
+  for (let k = 0; k < d/2; k++) {
+    const denom = Math.pow(10000, 2*k/d);
+    v[2*k]   = Math.cos(pos / denom);
+    v[2*k+1] = Math.sin(pos / denom);
+  }
+  return v;
+}
+
+function dot(a, b) {
+  return a.reduce((s, x, i) => s + x * b[i], 0);
+}
+
+function fmt(x) { return x.toFixed(4); }
+
+function render() {
+  const delta  = +document.getElementById('delta').value;
+  const d      = +document.getElementById('dmodel').value;
+
+  const pairs = [
+    [0,  delta],
+    [5,  5  + delta],
+    [20, 20 + delta],
+    [50, 50 + delta],
+    [99, 99 + delta],
+  ];
+
+  const dots = pairs.map(([i, j]) => dot(emb(i, d), emb(j, d)));
+  const ref  = dots[0];
+  const allSame = dots.every(x => Math.abs(x - ref) < 1e-6);
+
+  let rows = '';
+  for (let r = 0; r < pairs.length; r++) {
+    const [i, j] = pairs[r];
+    const d_ = dots[r];
+    const diff = Math.abs(d_ - ref);
+    rows += `<tr>
+      <td class="mono">${i}</td>
+      <td class="mono">${j}</td>
+      <td class="mono">${delta}</td>
+      <td class="mono ${r===0 ? 'hl' : ''}">${fmt(d_)}</td>
+      <td class="mono" style="color:${diff<1e-6?'var(--color-text-success)':'var(--color-text-danger)'}">
+        ${diff < 1e-6 ? '✓ same' : '✗ ' + diff.toFixed(6)}
+      </td>
+    </tr>`;
+  }
+
+  document.getElementById('result').innerHTML = `
+    <table>
+      <thead><tr>
+        <th>i</th><th>j</th><th>j−i</th>
+        <th>emb(i) · emb(j)</th><th>vs emb(0) · emb(Δ)</th>
+      </tr></thead>
+      <tbody>${rows}</tbody>
+    </table>
+    <div class="box">
+      <span class="eq">emb(0) · emb(${delta}) = ${fmt(dots[0])}</span><br>
+      <span class="eq">emb(5) · emb(${5+delta}) = ${fmt(dots[1])}</span><br>
+      <span class="eq">emb(20) · emb(${20+delta}) = ${fmt(dots[2])}</span><br>
+      All pairs with offset Δ = ${delta} give the <strong>same dot product</strong> regardless of absolute position.
+      The attention score between two tokens depends only on their <em>relative</em> distance, not where they sit in the sequence.
+    </div>`;
+}
+
+['delta','dmodel'].forEach(id => {
+  document.getElementById(id).addEventListener('input', e => {
+    document.getElementById(id+'V').textContent = e.target.value;
+    render();
+  });
+});
+render();
+</script>
